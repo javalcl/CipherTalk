@@ -251,7 +251,12 @@ function AnnualReportWindow() {
   const [loadingProgress, setLoadingProgress] = useState(0)
   const [loadingStage, setLoadingStage] = useState('正在初始化...')
 
-  const { currentTheme, themeMode } = useThemeStore()
+  const { currentTheme, themeMode, loadTheme } = useThemeStore()
+
+  // 加载主题配置
+  useEffect(() => {
+    loadTheme()
+  }, [loadTheme])
 
   // 应用主题到独立窗口
   useEffect(() => {

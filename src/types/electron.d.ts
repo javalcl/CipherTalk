@@ -53,6 +53,7 @@ export interface ElectronAPI {
     waitForWindow: (maxWaitSeconds?: number) => Promise<boolean>
     startGetKey: () => Promise<{ success: boolean; key?: string; error?: string }>
     cancel: () => Promise<boolean>
+    detectCurrentAccount: (dbPath?: string, maxTimeDiffMinutes?: number) => Promise<{ wxid: string; dbPath: string } | null>
     onStatus: (callback: (data: { status: string; level: number }) => void) => () => void
   }
   dbPath: {
@@ -61,7 +62,7 @@ export interface ElectronAPI {
     getDefault: () => Promise<string>
   }
   wcdb: {
-    testConnection: (dbPath: string, hexKey: string, wxid: string) => Promise<{ success: boolean; error?: string; sessionCount?: number }>
+    testConnection: (dbPath: string, hexKey: string, wxid: string, isAutoConnect?: boolean) => Promise<{ success: boolean; error?: string; sessionCount?: number }>
     open: (dbPath: string, hexKey: string, wxid: string) => Promise<boolean>
     close: () => Promise<boolean>
   }
@@ -116,6 +117,32 @@ export interface ElectronAPI {
   imageDecrypt: {
     batchDetectXorKey: (dirPath: string) => Promise<{ success: boolean; key?: number | null; error?: string }>
     decryptImage: (inputPath: string, outputPath: string, xorKey: number, aesKey?: string) => Promise<{ success: boolean; error?: string }>
+  }
+  image: {
+    decrypt: (payload: { sessionId?: string; imageMd5?: string; imageDatName?: string; force?: boolean }) => Promise<{ success: boolean; localPath?: string; error?: string }>
+    resolveCache: (payload: { sessionId?: string; imageMd5?: string; imageDatName?: string }) => Promise<{ success: boolean; localPath?: string; hasUpdate?: boolean; error?: string }>
+    onUpdateAvailable: (callback: (data: { cacheKey: string; imageMd5?: string; imageDatName?: string }) => void) => () => void
+    onCacheResolved: (callback: (data: { cacheKey: string; imageMd5?: string; imageDatName?: string; localPath: string }) => void) => () => void
+  }
+  video: {
+    getVideoInfo: (videoMd5: string) => Promise<{
+      success: boolean
+      error?: string
+      exists: boolean
+      videoUrl?: string
+      coverUrl?: string
+      thumbUrl?: string
+    }>
+    readFile: (videoPath: string) => Promise<{
+      success: boolean
+      error?: string
+      data?: string
+    }>
+    parseVideoMd5: (content: string) => Promise<{
+      success: boolean
+      error?: string
+      md5?: string
+    }>
   }
   imageKey: {
     getImageKeys: (userDir: string) => Promise<{ success: boolean; xorKey?: number; aesKey?: string; error?: string }>
@@ -328,6 +355,51 @@ export interface ElectronAPI {
     checkStatus: () => Promise<ActivationStatus>
     getTypeDisplayName: (type: string | null) => Promise<string>
     clearCache: () => Promise<boolean>
+  }
+  cache: {
+    clearImages: () => Promise<{ success: boolean; error?: string }>
+    clearAll: () => Promise<{ success: boolean; error?: string }>
+    clearConfig: () => Promise<{ success: boolean; error?: string }>
+    getCacheSize: () => Promise<{ 
+      success: boolean; 
+      error?: string;
+      size?: {
+        images: number
+        emojis: number
+        databases: number
+        logs: number
+        total: number
+      }
+    }>
+  }
+  log: {
+    getLogFiles: () => Promise<{ 
+      success: boolean; 
+      error?: string;
+      files?: Array<{ name: string; size: number; mtime: Date }>
+    }>
+    readLogFile: (filename: string) => Promise<{ 
+      success: boolean; 
+      error?: string;
+      content?: string
+    }>
+    clearLogs: () => Promise<{ success: boolean; error?: string }>
+    getLogSize: () => Promise<{ 
+      success: boolean; 
+      error?: string;
+      size?: number
+    }>
+    getLogDirectory: () => Promise<{ 
+      success: boolean; 
+      error?: string;
+      directory?: string
+    }>
+    setLogLevel: (level: string) => Promise<{ success: boolean; error?: string }>
+    getLogLevel: () => Promise<{ 
+      success: boolean; 
+      error?: string;
+      level?: string
+    }>
   }
 }
 

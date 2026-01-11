@@ -8,40 +8,74 @@ interface MessageContentProps {
 }
 
 /**
+ * 处理文本中的换行符，将 \n 转换为 <br /> 标签
+ * 同时处理链接和表情
+ */
+function processTextWithLineBreaks(text: string): React.ReactNode[] {
+  const lines = text.split('\n')
+  const result: React.ReactNode[] = []
+  
+  lines.forEach((line, lineIndex) => {
+    // 在每行之间添加换行符（除了第一行之前）
+    if (lineIndex > 0) {
+      result.push(<br key={`br-${lineIndex}`} />)
+    }
+    
+    // 处理当前行的链接
+    const linkedContent = linkifyText(line)
+    
+    // 如果链接处理返回了数组，需要对每个部分处理表情
+    if (Array.isArray(linkedContent)) {
+      linkedContent.forEach((part, partIndex) => {
+        if (typeof part === 'string') {
+          // 处理表情
+          result.push(
+            <React.Fragment key={`line-${lineIndex}-part-${partIndex}`}>
+              {parseWechatEmoji(part)}
+            </React.Fragment>
+          )
+        } else {
+          // 已经是 React 元素（如链接）
+          result.push(
+            <React.Fragment key={`line-${lineIndex}-part-${partIndex}`}>
+              {part}
+            </React.Fragment>
+          )
+        }
+      })
+    } else if (typeof linkedContent === 'string') {
+      // 如果是字符串，处理表情
+      result.push(
+        <React.Fragment key={`line-${lineIndex}`}>
+          {parseWechatEmoji(linkedContent)}
+        </React.Fragment>
+      )
+    } else {
+      // 其他情况直接添加
+      result.push(
+        <React.Fragment key={`line-${lineIndex}`}>
+          {linkedContent}
+        </React.Fragment>
+      )
+    }
+  })
+  
+  return result
+}
+
+/**
  * 消息内容渲染组件
- * 处理：微信表情、链接识别
+ * 处理：换行符、链接识别、微信表情
  */
 function MessageContent({ content, className }: MessageContentProps) {
   if (!content) return null
 
-  // 先处理链接，再处理表情
-  const processContent = (text: string | React.ReactNode): React.ReactNode => {
-    if (typeof text !== 'string') return text
-    
-    // 处理链接
-    const linkedContent = linkifyText(text)
-    
-    // 如果链接处理返回了数组，需要对每个字符串部分处理表情
-    if (Array.isArray(linkedContent)) {
-      return linkedContent.map((part, index) => {
-        if (typeof part === 'string') {
-          return <React.Fragment key={index}>{parseWechatEmoji(part)}</React.Fragment>
-        }
-        return part
-      })
-    }
-    
-    // 如果是字符串，处理表情
-    if (typeof linkedContent === 'string') {
-      return parseWechatEmoji(linkedContent)
-    }
-    
-    return linkedContent
-  }
+  // 处理换行、链接和表情
+  const processedContent = processTextWithLineBreaks(content)
 
   return (
     <span className={className}>
-      {processContent(content)}
+      {processedContent}
     </span>
   )
 }

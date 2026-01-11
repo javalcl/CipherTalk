@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme, protocol, net } from 'electron'
 import { join } from 'path'
+import { readFileSync, existsSync } from 'fs'
 import { autoUpdater } from 'electron-updater'
 import { DatabaseService } from './services/database'
 import { DecryptService } from './services/decrypt'
@@ -16,16 +17,55 @@ import { groupAnalyticsService } from './services/groupAnalyticsService'
 import { annualReportService } from './services/annualReportService'
 import { exportService, ExportOptions } from './services/exportService'
 import { activationService } from './services/activationService'
+import { LogService } from './services/logService'
+import { videoService } from './services/videoService'
+
+// 注册自定义协议为特权协议（必须在 app ready 之前）
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'local-video',
+    privileges: {
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      bypassCSP: true
+    }
+  }
+])
 
 // 配置自动更新
 autoUpdater.autoDownload = false
 autoUpdater.autoInstallOnAppQuit = true
 autoUpdater.disableDifferentialDownload = true  // 禁用差分更新，强制全量下载
 
+/**
+ * 比较两个语义化版本号
+ * @param version1 版本1
+ * @param version2 版本2
+ * @returns version1 > version2 返回 true
+ */
+function isNewerVersion(version1: string, version2: string): boolean {
+  const v1Parts = version1.split('.').map(Number)
+  const v2Parts = version2.split('.').map(Number)
+  
+  // 补齐版本号位数
+  const maxLength = Math.max(v1Parts.length, v2Parts.length)
+  while (v1Parts.length < maxLength) v1Parts.push(0)
+  while (v2Parts.length < maxLength) v2Parts.push(0)
+  
+  for (let i = 0; i < maxLength; i++) {
+    if (v1Parts[i] > v2Parts[i]) return true
+    if (v1Parts[i] < v2Parts[i]) return false
+  }
+  
+  return false // 版本相同
+}
+
 // 单例服务
 let dbService: DatabaseService | null = null
 let decryptService: DecryptService | null = null
 let configService: ConfigService | null = null
+let logService: LogService | null = null
 
 // 聊天窗口实例
 let chatWindow: BrowserWindow | null = null
@@ -37,6 +77,17 @@ let annualReportWindow: BrowserWindow | null = null
 let agreementWindow: BrowserWindow | null = null
 // 购买窗口实例
 let purchaseWindow: BrowserWindow | null = null
+
+/**
+ * 获取当前主题的 URL 查询参数
+ * 用于子窗口加载时传递主题，防止闪烁
+ */
+function getThemeQueryParams(): string {
+  if (!configService) return ''
+  const theme = configService.get('theme') || 'cloud-dancer'
+  const themeMode = configService.get('themeMode') || 'light'
+  return `theme=${encodeURIComponent(theme)}&mode=${encodeURIComponent(themeMode)}`
+}
 
 function createWindow() {
   // 获取图标路径 - 打包后在 resources 目录
@@ -69,6 +120,10 @@ function createWindow() {
   configService = new ConfigService()
   dbService = new DatabaseService()
   decryptService = new DecryptService()
+  logService = new LogService(configService)
+
+  // 记录应用启动日志
+  logService.info('App', '应用启动', { version: app.getVersion() })
 
   // 窗口准备好后显示
   win.once('ready-to-show', () => {
@@ -103,6 +158,9 @@ function createWindow() {
 function createChatWindow() {
   // 如果已存在，聚焦到现有窗口
   if (chatWindow && !chatWindow.isDestroyed()) {
+    if (chatWindow.isMinimized()) {
+      chatWindow.restore()
+    }
     chatWindow.focus()
     return chatWindow
   }
@@ -111,6 +169,8 @@ function createChatWindow() {
   const iconPath = isDev
     ? join(__dirname, '../public/icon.ico')
     : join(process.resourcesPath, 'icon.ico')
+
+  const isDark = nativeTheme.shouldUseDarkColors
 
   chatWindow = new BrowserWindow({
     width: 1000,
@@ -130,16 +190,19 @@ function createChatWindow() {
       height: 32
     },
     show: false,
-    backgroundColor: '#F0F0F0'
+    backgroundColor: isDark ? '#1A1A1A' : '#F0F0F0'
   })
 
   chatWindow.once('ready-to-show', () => {
     chatWindow?.show()
   })
 
+  // 获取主题参数
+  const themeParams = getThemeQueryParams()
+
   // 加载聊天页面
   if (process.env.VITE_DEV_SERVER_URL) {
-    chatWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}#/chat-window`)
+    chatWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}?${themeParams}#/chat-window`)
     
     chatWindow.webContents.on('before-input-event', (event, input) => {
       if (input.key === 'F12' || (input.control && input.shift && input.key === 'I')) {
@@ -152,7 +215,10 @@ function createChatWindow() {
       }
     })
   } else {
-    chatWindow.loadFile(join(__dirname, '../dist/index.html'), { hash: '/chat-window' })
+    chatWindow.loadFile(join(__dirname, '../dist/index.html'), { 
+      hash: '/chat-window',
+      query: { theme: configService?.get('theme') || 'cloud-dancer', mode: configService?.get('themeMode') || 'light' }
+    })
   }
 
   chatWindow.on('closed', () => {
@@ -168,6 +234,9 @@ function createChatWindow() {
 function createGroupAnalyticsWindow() {
   // 如果已存在，聚焦到现有窗口
   if (groupAnalyticsWindow && !groupAnalyticsWindow.isDestroyed()) {
+    if (groupAnalyticsWindow.isMinimized()) {
+      groupAnalyticsWindow.restore()
+    }
     groupAnalyticsWindow.focus()
     return groupAnalyticsWindow
   }
@@ -176,6 +245,8 @@ function createGroupAnalyticsWindow() {
   const iconPath = isDev
     ? join(__dirname, '../public/icon.ico')
     : join(process.resourcesPath, 'icon.ico')
+
+  const isDark = nativeTheme.shouldUseDarkColors
 
   groupAnalyticsWindow = new BrowserWindow({
     width: 1100,
@@ -195,16 +266,19 @@ function createGroupAnalyticsWindow() {
       height: 32
     },
     show: false,
-    backgroundColor: '#F0F0F0'
+    backgroundColor: isDark ? '#1A1A1A' : '#F0F0F0'
   })
 
   groupAnalyticsWindow.once('ready-to-show', () => {
     groupAnalyticsWindow?.show()
   })
 
+  // 获取主题参数
+  const themeParams = getThemeQueryParams()
+
   // 加载群聊分析页面
   if (process.env.VITE_DEV_SERVER_URL) {
-    groupAnalyticsWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}#/group-analytics-window`)
+    groupAnalyticsWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}?${themeParams}#/group-analytics-window`)
     
     groupAnalyticsWindow.webContents.on('before-input-event', (event, input) => {
       if (input.key === 'F12' || (input.control && input.shift && input.key === 'I')) {
@@ -217,7 +291,10 @@ function createGroupAnalyticsWindow() {
       }
     })
   } else {
-    groupAnalyticsWindow.loadFile(join(__dirname, '../dist/index.html'), { hash: '/group-analytics-window' })
+    groupAnalyticsWindow.loadFile(join(__dirname, '../dist/index.html'), { 
+      hash: '/group-analytics-window',
+      query: { theme: configService?.get('theme') || 'cloud-dancer', mode: configService?.get('themeMode') || 'light' }
+    })
   }
 
   groupAnalyticsWindow.on('closed', () => {
@@ -269,9 +346,12 @@ function createAnnualReportWindow(year: number) {
     annualReportWindow?.show()
   })
 
+  // 获取主题参数
+  const themeParams = getThemeQueryParams()
+
   // 加载年度报告页面，带年份参数
   if (process.env.VITE_DEV_SERVER_URL) {
-    annualReportWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}#/annual-report-window?year=${year}`)
+    annualReportWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}?${themeParams}#/annual-report-window?year=${year}`)
     
     annualReportWindow.webContents.on('before-input-event', (event, input) => {
       if (input.key === 'F12' || (input.control && input.shift && input.key === 'I')) {
@@ -284,7 +364,10 @@ function createAnnualReportWindow(year: number) {
       }
     })
   } else {
-    annualReportWindow.loadFile(join(__dirname, '../dist/index.html'), { hash: `/annual-report-window?year=${year}` })
+    annualReportWindow.loadFile(join(__dirname, '../dist/index.html'), { 
+      hash: `/annual-report-window?year=${year}`,
+      query: { theme: configService?.get('theme') || 'cloud-dancer', mode: configService?.get('themeMode') || 'light' }
+    })
   }
 
   annualReportWindow.on('closed', () => {
@@ -336,10 +419,16 @@ function createAgreementWindow() {
     agreementWindow?.show()
   })
 
+  // 获取主题参数
+  const themeParams = getThemeQueryParams()
+
   if (process.env.VITE_DEV_SERVER_URL) {
-    agreementWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}#/agreement-window`)
+    agreementWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}?${themeParams}#/agreement-window`)
   } else {
-    agreementWindow.loadFile(join(__dirname, '../dist/index.html'), { hash: '/agreement-window' })
+    agreementWindow.loadFile(join(__dirname, '../dist/index.html'), { 
+      hash: '/agreement-window',
+      query: { theme: configService?.get('theme') || 'cloud-dancer', mode: configService?.get('themeMode') || 'light' }
+    })
   }
 
   agreementWindow.on('closed', () => {
@@ -471,7 +560,9 @@ function registerIpcHandlers() {
       if (result && result.updateInfo) {
         const currentVersion = app.getVersion()
         const latestVersion = result.updateInfo.version
-        if (latestVersion !== currentVersion) {
+        
+        // 使用语义化版本比较
+        if (isNewerVersion(latestVersion, currentVersion)) {
           return {
             hasUpdate: true,
             version: latestVersion,
@@ -559,23 +650,29 @@ function registerIpcHandlers() {
   })
 
   ipcMain.handle('wxkey:startGetKey', async (event) => {
+    logService?.info('WxKey', '开始获取微信密钥')
     try {
       // 初始化 DLL
       const initSuccess = await wxKeyService.initialize()
       if (!initSuccess) {
+        logService?.error('WxKey', 'DLL 初始化失败')
         return { success: false, error: 'DLL 初始化失败' }
       }
 
       // 获取微信 PID
       const pid = wxKeyService.getWeChatPid()
       if (!pid) {
+        logService?.error('WxKey', '未找到微信进程')
         return { success: false, error: '未找到微信进程' }
       }
+
+      logService?.info('WxKey', '找到微信进程', { pid })
 
       // 创建 Promise 等待密钥
       return new Promise((resolve) => {
         const timeout = setTimeout(() => {
           wxKeyService.dispose()
+          logService?.error('WxKey', '获取密钥超时')
           resolve({ success: false, error: '获取密钥超时' })
         }, 60000)
 
@@ -584,6 +681,7 @@ function registerIpcHandlers() {
           (key) => {
             clearTimeout(timeout)
             wxKeyService.dispose()
+            logService?.info('WxKey', '密钥获取成功', { keyLength: key.length })
             resolve({ success: true, key })
           },
           (status, level) => {
@@ -596,11 +694,13 @@ function registerIpcHandlers() {
           clearTimeout(timeout)
           const error = wxKeyService.getLastError()
           wxKeyService.dispose()
+          logService?.error('WxKey', 'Hook 安装失败', { error })
           resolve({ success: false, error: `Hook 安装失败: ${error}` })
         }
       })
     } catch (e) {
       wxKeyService.dispose()
+      logService?.error('WxKey', '获取密钥异常', { error: String(e) })
       return { success: false, error: String(e) }
     }
   })
@@ -608,6 +708,10 @@ function registerIpcHandlers() {
   ipcMain.handle('wxkey:cancel', async () => {
     wxKeyService.dispose()
     return true
+  })
+
+  ipcMain.handle('wxkey:detectCurrentAccount', async (_, dbPath?: string, maxTimeDiffMinutes?: number) => {
+    return wxKeyService.detectCurrentAccount(dbPath, maxTimeDiffMinutes)
   })
 
   // 数据库路径相关
@@ -624,8 +728,30 @@ function registerIpcHandlers() {
   })
 
   // WCDB 数据库相关
-  ipcMain.handle('wcdb:testConnection', async (_, dbPath: string, hexKey: string, wxid: string) => {
-    return wcdbService.testConnection(dbPath, hexKey, wxid)
+  ipcMain.handle('wcdb:testConnection', async (_, dbPath: string, hexKey: string, wxid: string, isAutoConnect = false) => {
+    const logPrefix = isAutoConnect ? '自动连接' : '手动测试'
+    logService?.info('WCDB', `${logPrefix}数据库连接`, { dbPath, wxid, isAutoConnect })
+    const result = await wcdbService.testConnection(dbPath, hexKey, wxid)
+    if (result.success) {
+      logService?.info('WCDB', `${logPrefix}数据库连接成功`, { sessionCount: result.sessionCount })
+    } else {
+      // 自动连接失败使用WARN级别，手动测试失败使用ERROR级别
+      const logLevel = isAutoConnect ? 'warn' : 'error'
+      const errorInfo = {
+        error: result.error || '未知错误',
+        dbPath,
+        wxid,
+        keyLength: hexKey ? hexKey.length : 0,
+        isAutoConnect
+      }
+      
+      if (logLevel === 'warn') {
+        logService?.warn('WCDB', `${logPrefix}数据库连接失败`, errorInfo)
+      } else {
+        logService?.error('WCDB', `${logPrefix}数据库连接失败`, errorInfo)
+      }
+    }
+    return result
   })
 
   ipcMain.handle('wcdb:open', async (_, dbPath: string, hexKey: string, wxid: string) => {
@@ -690,9 +816,61 @@ function registerIpcHandlers() {
 
   ipcMain.handle('imageDecrypt:decryptImage', async (_, inputPath: string, outputPath: string, xorKey: number, aesKey?: string) => {
     try {
+      logService?.info('ImageDecrypt', '开始解密图片', { inputPath, outputPath })
       const aesKeyBuffer = aesKey ? imageDecryptService.asciiKey16(aesKey) : undefined
       await imageDecryptService.decryptToFile(inputPath, outputPath, xorKey, aesKeyBuffer)
+      logService?.info('ImageDecrypt', '图片解密成功', { outputPath })
       return { success: true }
+    } catch (e) {
+      logService?.error('ImageDecrypt', '图片解密失败', { inputPath, error: String(e) })
+      return { success: false, error: String(e) }
+    }
+  })
+
+  // 新的图片解密 API（来自 WeFlow）
+  ipcMain.handle('image:decrypt', async (_, payload: { sessionId?: string; imageMd5?: string; imageDatName?: string; force?: boolean }) => {
+    const result = await imageDecryptService.decryptImage(payload)
+    if (!result.success) {
+      logService?.error('ImageDecrypt', '图片解密失败', { payload, error: result.error })
+    }
+    return result
+  })
+
+  ipcMain.handle('image:resolveCache', async (_, payload: { sessionId?: string; imageMd5?: string; imageDatName?: string }) => {
+    const result = await imageDecryptService.resolveCachedImage(payload)
+    if (!result.success) {
+      logService?.warn('ImageDecrypt', '图片缓存解析失败', { payload, error: result.error })
+    }
+    return result
+  })
+
+  // 视频相关
+  ipcMain.handle('video:getVideoInfo', async (_, videoMd5: string) => {
+    try {
+      const result = videoService.getVideoInfo(videoMd5)
+      return { success: true, ...result }
+    } catch (e) {
+      return { success: false, error: String(e), exists: false }
+    }
+  })
+
+  ipcMain.handle('video:readFile', async (_, videoPath: string) => {
+    try {
+      if (!existsSync(videoPath)) {
+        return { success: false, error: '视频文件不存在' }
+      }
+      const buffer = readFileSync(videoPath)
+      const base64 = buffer.toString('base64')
+      return { success: true, data: `data:video/mp4;base64,${base64}` }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  })
+
+  ipcMain.handle('video:parseVideoMd5', async (_, content: string) => {
+    try {
+      const md5 = videoService.parseVideoMd5(content)
+      return { success: true, md5 }
     } catch (e) {
       return { success: false, error: String(e) }
     }
@@ -700,10 +878,12 @@ function registerIpcHandlers() {
 
   // 图片密钥获取（从内存）
   ipcMain.handle('imageKey:getImageKeys', async (event, userDir: string) => {
+    logService?.info('ImageKey', '开始获取图片密钥', { userDir })
     try {
       // 获取微信 PID
       const pid = wxKeyService.getWeChatPid()
       if (!pid) {
+        logService?.error('ImageKey', '微信进程未运行')
         return { success: false, error: '微信进程未运行，请先启动微信并登录' }
       }
 
@@ -715,23 +895,51 @@ function registerIpcHandlers() {
         }
       )
 
+      if (result.success) {
+        logService?.info('ImageKey', '图片密钥获取成功', { 
+          hasXorKey: result.xorKey !== undefined,
+          hasAesKey: !!result.aesKey 
+        })
+      } else {
+        logService?.error('ImageKey', '图片密钥获取失败', { error: result.error })
+      }
+
       return result
     } catch (e) {
+      logService?.error('ImageKey', '图片密钥获取异常', { error: String(e) })
       return { success: false, error: String(e) }
     }
   })
 
   // 聊天相关
   ipcMain.handle('chat:connect', async () => {
-    return chatService.connect()
+    logService?.info('Chat', '尝试连接聊天服务')
+    const result = await chatService.connect()
+    if (result.success) {
+      logService?.info('Chat', '聊天服务连接成功')
+    } else {
+      // 聊天连接失败可能是数据库未准备好，使用WARN级别
+      logService?.warn('Chat', '聊天服务连接失败', { error: result.error })
+    }
+    return result
   })
 
   ipcMain.handle('chat:getSessions', async () => {
-    return chatService.getSessions()
+    const result = await chatService.getSessions()
+    if (!result.success) {
+      // 获取会话失败可能是数据库未连接，使用WARN级别
+      logService?.warn('Chat', '获取会话列表失败', { error: result.error })
+    }
+    return result
   })
 
   ipcMain.handle('chat:getMessages', async (_, sessionId: string, offset?: number, limit?: number) => {
-    return chatService.getMessages(sessionId, offset, limit)
+    const result = await chatService.getMessages(sessionId, offset, limit)
+    if (!result.success) {
+      // 获取消息失败可能是数据库未连接，使用WARN级别
+      logService?.warn('Chat', '获取消息失败', { sessionId, error: result.error })
+    }
+    return result
   })
 
   ipcMain.handle('chat:getContact', async (_, username: string) => {
@@ -743,29 +951,44 @@ function registerIpcHandlers() {
   })
 
   ipcMain.handle('chat:getMyAvatarUrl', async () => {
-    return chatService.getMyAvatarUrl()
+    const result = chatService.getMyAvatarUrl()
+    // 首页会调用这个接口，失败是正常的，不记录错误日志
+    return result
   })
 
   ipcMain.handle('chat:getMyUserInfo', async () => {
-    return chatService.getMyUserInfo()
+    const result = chatService.getMyUserInfo()
+    // 首页会调用这个接口，失败是正常的，不记录错误日志
+    return result
   })
 
   ipcMain.handle('chat:downloadEmoji', async (_, cdnUrl: string, md5?: string) => {
-    return chatService.downloadEmoji(cdnUrl, md5)
+    const result = await chatService.downloadEmoji(cdnUrl, md5)
+    if (!result.success) {
+      logService?.warn('Chat', '下载表情失败', { cdnUrl, error: result.error })
+    }
+    return result
   })
 
   ipcMain.handle('chat:close', async () => {
+    logService?.info('Chat', '关闭聊天服务')
     chatService.close()
     return true
   })
 
   ipcMain.handle('chat:refreshCache', async () => {
+    logService?.info('Chat', '刷新消息缓存')
     chatService.refreshMessageDbCache()
     return true
   })
 
   ipcMain.handle('chat:getSessionDetail', async (_, sessionId: string) => {
-    return chatService.getSessionDetail(sessionId)
+    const result = await chatService.getSessionDetail(sessionId)
+    if (!result.success) {
+      // 获取会话详情失败可能是数据库未连接，使用WARN级别
+      logService?.warn('Chat', '获取会话详情失败', { sessionId, error: result.error })
+    }
+    return result
   })
 
   // 导出相关
@@ -889,6 +1112,156 @@ function registerIpcHandlers() {
     activationService.clearCache()
     return true
   })
+
+  // 缓存管理
+  ipcMain.handle('cache:clearImages', async () => {
+    logService?.info('Cache', '开始清除图片缓存')
+    try {
+      const cacheService = new (await import('./services/cacheService')).CacheService(configService!)
+      const result = await cacheService.clearImages()
+      if (result.success) {
+        logService?.info('Cache', '图片缓存清除成功')
+      } else {
+        logService?.error('Cache', '图片缓存清除失败', { error: result.error })
+      }
+      return result
+    } catch (e) {
+      logService?.error('Cache', '图片缓存清除异常', { error: String(e) })
+      return { success: false, error: String(e) }
+    }
+  })
+
+  ipcMain.handle('cache:clearAll', async () => {
+    logService?.info('Cache', '开始清除所有缓存')
+    try {
+      const cacheService = new (await import('./services/cacheService')).CacheService(configService!)
+      const result = await cacheService.clearAll()
+      if (result.success) {
+        logService?.info('Cache', '所有缓存清除成功')
+      } else {
+        logService?.error('Cache', '所有缓存清除失败', { error: result.error })
+      }
+      return result
+    } catch (e) {
+      logService?.error('Cache', '所有缓存清除异常', { error: String(e) })
+      return { success: false, error: String(e) }
+    }
+  })
+
+  ipcMain.handle('cache:clearConfig', async () => {
+    logService?.info('Cache', '开始清除配置')
+    try {
+      const cacheService = new (await import('./services/cacheService')).CacheService(configService!)
+      const result = await cacheService.clearConfig()
+      if (result.success) {
+        logService?.info('Cache', '配置清除成功')
+      } else {
+        logService?.error('Cache', '配置清除失败', { error: result.error })
+      }
+      return result
+    } catch (e) {
+      logService?.error('Cache', '配置清除异常', { error: String(e) })
+      return { success: false, error: String(e) }
+    }
+  })
+
+  ipcMain.handle('cache:getCacheSize', async () => {
+    try {
+      const cacheService = new (await import('./services/cacheService')).CacheService(configService!)
+      return await cacheService.getCacheSize()
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  })
+
+  // 日志管理
+  ipcMain.handle('log:getLogFiles', async () => {
+    try {
+      return { success: true, files: logService?.getLogFiles() || [] }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  })
+
+  ipcMain.handle('log:readLogFile', async (_, filename: string) => {
+    try {
+      const content = logService?.readLogFile(filename)
+      return { success: true, content }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  })
+
+  ipcMain.handle('log:clearLogs', async () => {
+    try {
+      return logService?.clearLogs() || { success: false, error: '日志服务未初始化' }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  })
+
+  ipcMain.handle('log:getLogSize', async () => {
+    try {
+      const size = logService?.getLogSize() || 0
+      return { success: true, size }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  })
+
+  ipcMain.handle('log:getLogDirectory', async () => {
+    try {
+      const directory = logService?.getLogDirectory() || ''
+      return { success: true, directory }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  })
+
+  ipcMain.handle('log:setLogLevel', async (_, level: string) => {
+    try {
+      if (!logService) {
+        return { success: false, error: '日志服务未初始化' }
+      }
+      
+      let logLevel: number
+      switch (level.toUpperCase()) {
+        case 'DEBUG':
+          logLevel = 0
+          break
+        case 'INFO':
+          logLevel = 1
+          break
+        case 'WARN':
+          logLevel = 2
+          break
+        case 'ERROR':
+          logLevel = 3
+          break
+        default:
+          return { success: false, error: '无效的日志级别' }
+      }
+      
+      logService.setLogLevel(logLevel)
+      return { success: true }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  })
+
+  ipcMain.handle('log:getLogLevel', async () => {
+    try {
+      if (!logService) {
+        return { success: false, error: '日志服务未初始化' }
+      }
+      
+      const level = logService.getLogLevel()
+      const levelNames = ['DEBUG', 'INFO', 'WARN', 'ERROR']
+      return { success: true, level: levelNames[level] }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  })
 }
 
 // 主窗口引用
@@ -906,7 +1279,9 @@ function checkForUpdatesOnStartup() {
       if (result && result.updateInfo) {
         const currentVersion = app.getVersion()
         const latestVersion = result.updateInfo.version
-        if (latestVersion !== currentVersion && mainWindow) {
+        
+        // 使用语义化版本比较
+        if (isNewerVersion(latestVersion, currentVersion) && mainWindow) {
           // 通知渲染进程有新版本
           mainWindow.webContents.send('app:updateAvailable', {
             version: latestVersion,
@@ -921,6 +1296,16 @@ function checkForUpdatesOnStartup() {
 }
 
 app.whenReady().then(() => {
+  // 注册自定义协议用于加载本地视频
+  protocol.handle('local-video', (request) => {
+    // 移除协议前缀并解码
+    let filePath = decodeURIComponent(request.url.replace('local-video://', ''))
+    // Windows 路径处理：确保使用正斜杠
+    filePath = filePath.replace(/\\/g, '/')
+    console.log('[Protocol] 加载视频:', filePath)
+    return net.fetch(`file:///${filePath}`)
+  })
+  
   registerIpcHandlers()
   mainWindow = createWindow()
   

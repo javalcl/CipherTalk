@@ -2,6 +2,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
+  height: 100%;
 }
 
 .home-header {
@@ -31,9 +33,7 @@
 
 // 用户状态卡片
 .user-status-card {
-  background: var(--bg-secondary);
-  border-radius: 12px;
-  padding: 16px 20px;
+  padding: 16px 0;
   margin-bottom: 24px;
   width: 100%;
   max-width: 420px;
@@ -147,59 +147,10 @@
   }
 }
 
-// 快捷功能入口
-.shortcuts {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  margin-bottom: 24px;
-  width: 100%;
-  max-width: 420px;
-}
-
-.shortcut-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 18px 8px;
-  background: var(--bg-secondary);
-  border-radius: 12px;
-  cursor: pointer;
-  transition: all 0.2s;
-  
-  &:hover {
-    background: var(--bg-tertiary);
-    transform: translateY(-2px);
-    
-    .shortcut-icon {
-      transform: scale(1.08);
-    }
-  }
-  
-  .shortcut-icon {
-    width: 48px;
-    height: 48px;
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    transition: transform 0.2s;
-  }
-  
-  .shortcut-label {
-    font-size: 12px;
-    color: var(--text-secondary);
-  }
-}
-
 // 使用提示
 .tips {
   text-align: left;
-  background: var(--bg-secondary);
-  border-radius: 12px;
-  padding: 16px 20px;
+  padding: 16px 0;
   width: 100%;
   max-width: 420px;
   

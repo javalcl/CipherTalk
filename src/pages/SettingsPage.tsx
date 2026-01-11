@@ -8,11 +8,11 @@ import * as configService from '../services/config'
 import { 
   Eye, EyeOff, Key, FolderSearch, FolderOpen, Search, 
   RotateCcw, Trash2, Save, Plug, X, Check, Sun, Moon,
-  Palette, Database, ImageIcon, Download, HardDrive, Info, RefreshCw, Shield, Clock, CheckCircle, AlertCircle
+  Palette, Database, ImageIcon, Download, HardDrive, Info, RefreshCw, Shield, Clock, CheckCircle, AlertCircle, FileText
 } from 'lucide-react'
 import './SettingsPage.scss'
 
-type SettingsTab = 'appearance' | 'database' | 'image' | 'export' | 'cache' | 'activation' | 'about'
+type SettingsTab = 'appearance' | 'database' | 'image' | 'export' | 'cache' | 'logs' | 'activation' | 'about'
 
 const tabs: { id: SettingsTab; label: string; icon: React.ElementType }[] = [
   { id: 'appearance', label: '外观', icon: Palette },
@@ -20,7 +20,8 @@ const tabs: { id: SettingsTab; label: string; icon: React.ElementType }[] = [
   { id: 'image', label: '图片解密', icon: ImageIcon },
   { id: 'export', label: '导出', icon: Download },
   { id: 'cache', label: '缓存', icon: HardDrive },
-  { id: 'activation', label: '激活', icon: Shield },
+  { id: 'logs', label: '日志', icon: FileText },
+  // { id: 'activation', label: '激活', icon: Shield },
   { id: 'about', label: '关于', icon: Info }
 ]
 
@@ -68,11 +69,35 @@ function SettingsPage() {
   const [showDecryptKey, setShowDecryptKey] = useState(false)
   const [showXorKey, setShowXorKey] = useState(false)
   const [showAesKey, setShowAesKey] = useState(false)
+  const [showClearDialog, setShowClearDialog] = useState<{
+    type: 'images' | 'all' | 'config'
+    title: string
+    message: string
+  } | null>(null)
+  const [cacheSize, setCacheSize] = useState<{
+    images: number
+    emojis: number
+    databases: number
+    logs: number
+    total: number
+  } | null>(null)
+  const [isLoadingCacheSize, setIsLoadingCacheSize] = useState(false)
+
+  // 日志相关状态
+  const [logFiles, setLogFiles] = useState<Array<{ name: string; size: number; mtime: Date }>>([])
+  const [selectedLogFile, setSelectedLogFile] = useState<string>('')
+  const [logContent, setLogContent] = useState<string>('')
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false)
+  const [isLoadingLogContent, setIsLoadingLogContent] = useState(false)
+  const [logSize, setLogSize] = useState<number>(0)
+  const [currentLogLevel, setCurrentLogLevel] = useState<string>('WARN')
 
   useEffect(() => {
     loadConfig()
     loadDefaultExportPath()
     loadAppVersion()
+    loadCacheSize()
+    loadLogFiles()
   }, [])
 
   const loadConfig = async () => {
@@ -115,6 +140,122 @@ function SettingsPage() {
     }
   }
 
+  const loadCacheSize = async () => {
+    setIsLoadingCacheSize(true)
+    try {
+      const result = await window.electronAPI.cache.getCacheSize()
+      if (result.success && result.size) {
+        setCacheSize(result.size)
+      }
+    } catch (e) {
+      console.error('获取缓存大小失败:', e)
+    } finally {
+      setIsLoadingCacheSize(false)
+    }
+  }
+
+  const loadLogFiles = async () => {
+    setIsLoadingLogs(true)
+    try {
+      const [filesResult, sizeResult, levelResult] = await Promise.all([
+        window.electronAPI.log.getLogFiles(),
+        window.electronAPI.log.getLogSize(),
+        window.electronAPI.log.getLogLevel()
+      ])
+      
+      if (filesResult.success && filesResult.files) {
+        setLogFiles(filesResult.files)
+      }
+      
+      if (sizeResult.success && sizeResult.size !== undefined) {
+        setLogSize(sizeResult.size)
+      }
+      
+      if (levelResult.success && levelResult.level) {
+        setCurrentLogLevel(levelResult.level)
+      }
+    } catch (e) {
+      console.error('获取日志文件失败:', e)
+    } finally {
+      setIsLoadingLogs(false)
+    }
+  }
+
+  const loadLogContent = async (filename: string) => {
+    if (!filename) return
+    
+    setIsLoadingLogContent(true)
+    try {
+      const result = await window.electronAPI.log.readLogFile(filename)
+      if (result.success && result.content) {
+        setLogContent(result.content)
+      } else {
+        setLogContent('无法读取日志文件')
+      }
+    } catch (e) {
+      console.error('读取日志文件失败:', e)
+      setLogContent('读取日志文件失败')
+    } finally {
+      setIsLoadingLogContent(false)
+    }
+  }
+
+  const handleClearLogs = async () => {
+    try {
+      const result = await window.electronAPI.log.clearLogs()
+      if (result.success) {
+        showMessage('日志清除成功', true)
+        setLogFiles([])
+        setLogContent('')
+        setSelectedLogFile('')
+        setLogSize(0)
+        await loadCacheSize() // 重新加载缓存大小
+      } else {
+        showMessage(result.error || '日志清除失败', false)
+      }
+    } catch (e) {
+      showMessage(`日志清除失败: ${e}`, false)
+    }
+  }
+
+  const handleLogFileSelect = (filename: string) => {
+    setSelectedLogFile(filename)
+    loadLogContent(filename)
+  }
+
+  const handleOpenLogDirectory = async () => {
+    try {
+      const result = await window.electronAPI.log.getLogDirectory()
+      if (result.success && result.directory) {
+        await window.electronAPI.shell.openPath(result.directory)
+      }
+    } catch (e) {
+      showMessage('打开日志目录失败', false)
+    }
+  }
+
+  const handleLogLevelChange = async (level: string) => {
+    try {
+      const result = await window.electronAPI.log.setLogLevel(level)
+      if (result.success) {
+        setCurrentLogLevel(level)
+        showMessage(`日志级别已设置为 ${level}`, true)
+      } else {
+        showMessage(result.error || '设置日志级别失败', false)
+      }
+    } catch (e) {
+      showMessage('设置日志级别失败', false)
+    }
+  }
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 B'
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
+  }
+
   // 监听下载进度
   useEffect(() => {
     const removeListener = window.electronAPI.app.onDownloadProgress?.((progress: number) => {
@@ -141,6 +282,71 @@ function SettingsPage() {
     }
   }
 
+  const showMessage = (text: string, success: boolean) => {
+    setMessage({ text, success })
+    setTimeout(() => setMessage(null), 3000)
+  }
+
+  const handleClearImages = () => {
+    setShowClearDialog({
+      type: 'images',
+      title: '清除图片',
+      message: '此操作将删除所有解密后的图片文件，清除后无法恢复。确定要继续吗？'
+    })
+  }
+
+  const handleClearAllCache = () => {
+    setShowClearDialog({
+      type: 'all',
+      title: '清除所有',
+      message: '此操作将删除所有缓存数据（包括解密后的图片、表情包、数据库文件），清除后无法恢复。确定要继续吗？'
+    })
+  }
+
+  const handleClearConfig = () => {
+    setShowClearDialog({
+      type: 'config',
+      title: '清除配置',
+      message: '此操作将删除所有保存的配置信息（包括密钥、路径等），清除后无法恢复。确定要继续吗？'
+    })
+  }
+
+  const confirmClear = async () => {
+    if (!showClearDialog) return
+    
+    try {
+      let result
+      switch (showClearDialog.type) {
+        case 'images':
+          result = await window.electronAPI.cache.clearImages()
+          break
+        case 'all':
+          result = await window.electronAPI.cache.clearAll()
+          break
+        case 'config':
+          result = await window.electronAPI.cache.clearConfig()
+          break
+      }
+      
+      if (result.success) {
+        showMessage(`${showClearDialog.title}成功`, true)
+        if (showClearDialog.type === 'config') {
+          // 清除配置后重新加载
+          await loadConfig()
+        } else {
+          // 清除缓存后重新加载缓存大小
+          await loadCacheSize()
+        }
+      } else {
+        showMessage(result.error || `${showClearDialog.title}失败`, false)
+      }
+    } catch (e) {
+      showMessage(`${showClearDialog.title}失败: ${e}`, false)
+    } finally {
+      setShowClearDialog(null)
+    }
+  }
+
   const handleUpdateNow = async () => {
     setIsDownloading(true)
     setDownloadProgress(0)
@@ -151,11 +357,6 @@ function SettingsPage() {
       showMessage(`更新失败: ${e}`, false)
       setIsDownloading(false)
     }
-  }
-
-  const showMessage = (text: string, success: boolean) => {
-    setMessage({ text, success })
-    setTimeout(() => setMessage(null), 3000)
   }
 
   const handleGetKey = async () => {
@@ -206,7 +407,25 @@ function SettingsPage() {
       if (result.success && result.key) {
         setDecryptKey(result.key)
         await configService.setDecryptKey(result.key)
-        showMessage('密钥获取成功，已自动保存！', true)
+        
+        // 自动检测当前登录的微信账号
+        setKeyStatus('正在检测当前登录账号...')
+        
+        // 先尝试较短的时间范围（刚登录的情况）
+        let accountInfo = await window.electronAPI.wxKey.detectCurrentAccount(dbPath, 10) // 10分钟
+        
+        // 如果没找到，尝试更长的时间范围
+        if (!accountInfo) {
+          accountInfo = await window.electronAPI.wxKey.detectCurrentAccount(dbPath, 60) // 1小时
+        }
+        
+        if (accountInfo) {
+          setWxid(accountInfo.wxid)
+          await configService.setMyWxid(accountInfo.wxid)
+          showMessage(`密钥获取成功！已自动绑定账号: ${accountInfo.wxid}`, true)
+        } else {
+          showMessage('密钥获取成功，已自动保存！（未能自动检测账号，请手动输入 wxid）', true)
+        }
         setKeyStatus('')
       } else {
         showMessage(result.error || '获取密钥失败', false)
@@ -324,30 +543,36 @@ function SettingsPage() {
   }
 
   const handleSaveConfig = async () => {
-    if (!decryptKey) { showMessage('请输入解密密钥', false); return }
-    if (decryptKey.length !== 64) { showMessage('密钥长度必须为64个字符', false); return }
-    if (!dbPath) { showMessage('请选择数据库目录', false); return }
-    if (!wxid) { showMessage('请输入 wxid', false); return }
-
     setIsLoadingState(true)
     setLoading(true, '正在保存配置...')
 
     try {
-      await configService.setDecryptKey(decryptKey)
-      await configService.setDbPath(dbPath)
-      await configService.setMyWxid(wxid)
+      // 保存数据库相关配置
+      if (decryptKey) await configService.setDecryptKey(decryptKey)
+      if (dbPath) await configService.setDbPath(dbPath)
+      if (wxid) await configService.setMyWxid(wxid)
       await configService.setCachePath(cachePath)
-      if (imageXorKey) await configService.setImageXorKey(imageXorKey)
-      if (imageAesKey) await configService.setImageAesKey(imageAesKey)
+      
+      // 保存图片密钥（包括空值）
+      await configService.setImageXorKey(imageXorKey)
+      await configService.setImageAesKey(imageAesKey)
+      
+      // 保存导出路径
+      if (exportPath) await configService.setExportPath(exportPath)
 
-      showMessage('配置保存成功，正在测试连接...', true)
-      const result = await window.electronAPI.wcdb.testConnection(dbPath, decryptKey, wxid)
+      // 如果数据库配置完整，测试连接
+      if (decryptKey && dbPath && wxid && decryptKey.length === 64) {
+        showMessage('配置保存成功，正在测试连接...', true)
+        const result = await window.electronAPI.wcdb.testConnection(dbPath, decryptKey, wxid, true) // 标记为自动连接
 
-      if (result.success) {
-        setDbConnected(true, dbPath)
-        showMessage('配置保存成功！数据库连接正常', true)
+        if (result.success) {
+          setDbConnected(true, dbPath)
+          showMessage('配置保存成功！数据库连接正常', true)
+        } else {
+          showMessage('配置已保存，但数据库连接失败：' + (result.error || ''), false)
+        }
       } else {
-        showMessage(result.error || '数据库连接失败，请检查配置', false)
+        showMessage('配置保存成功', true)
       }
     } catch (e) {
       showMessage(`保存配置失败: ${e}`, false)
@@ -425,7 +650,7 @@ function SettingsPage() {
 
       <div className="form-group">
         <label>缓存目录 <span className="optional">(可选)</span></label>
-        <span className="form-hint">留空使用默认目录</span>
+        <span className="form-hint">留空使用默认目录，尽可能不选择C盘</span>
         <input type="text" placeholder="留空使用默认目录" value={cachePath} onChange={(e) => setCachePath(e.target.value)} />
         <div className="btn-row">
           <button className="btn btn-secondary" onClick={handleSelectCachePath}><FolderOpen size={16} /> 浏览选择</button>
@@ -435,37 +660,96 @@ function SettingsPage() {
     </div>
   )
 
+  const [isGettingImageKey, setIsGettingImageKey] = useState(false)
+  const [imageKeyStatus, setImageKeyStatus] = useState('')
+
+  const handleGetImageKey = async () => {
+    if (isGettingImageKey) return
+    if (!dbPath) {
+      showMessage('请先配置数据库路径', false)
+      return
+    }
+    if (!wxid) {
+      showMessage('请先配置 wxid', false)
+      return
+    }
+
+    setIsGettingImageKey(true)
+    setImageKeyStatus('正在检查微信进程...')
+
+    try {
+      const isRunning = await window.electronAPI.wxKey.isWeChatRunning()
+      if (!isRunning) {
+        showMessage('请先启动微信并登录', false)
+        setImageKeyStatus('')
+        setIsGettingImageKey(false)
+        return
+      }
+
+      // 构建用户目录路径
+      const userDir = `${dbPath}\\${wxid}`
+
+      const removeListener = window.electronAPI.imageKey.onProgress((msg) => {
+        setImageKeyStatus(msg)
+      })
+
+      const result = await window.electronAPI.imageKey.getImageKeys(userDir)
+      removeListener()
+
+      if (result.success) {
+        if (result.xorKey !== undefined) {
+          const xorKeyHex = `0x${result.xorKey.toString(16).padStart(2, '0')}`
+          setImageXorKey(xorKeyHex)
+          await configService.setImageXorKey(xorKeyHex)
+        }
+        if (result.aesKey) {
+          setImageAesKey(result.aesKey)
+          await configService.setImageAesKey(result.aesKey)
+        }
+        showMessage('图片密钥获取成功！', true)
+        setImageKeyStatus('')
+      } else {
+        showMessage(result.error || '获取图片密钥失败', false)
+        setImageKeyStatus('')
+      }
+    } catch (e) {
+      showMessage(`获取图片密钥失败: ${e}`, false)
+      setImageKeyStatus('')
+    } finally {
+      setIsGettingImageKey(false)
+    }
+  }
+
   const renderImageTab = () => (
     <div className="tab-content">
-      <div className="unavailable-notice">
-        <ImageIcon size={24} />
-        <p>此功能由于微信加密方式原因，暂不可用</p>
-      </div>
-
-      <div className="form-group disabled">
+      <p className="section-desc">您只负责获取密钥，其他的交给密语-CipherTalk</p>
+      
+      <div className="form-group">
         <label>XOR 密钥</label>
         <span className="form-hint">2位十六进制，如 0x53</span>
         <div className="input-with-toggle">
-          <input type={showXorKey ? 'text' : 'password'} placeholder="例如: 0x12" value={imageXorKey} onChange={(e) => setImageXorKey(e.target.value)} disabled />
-          <button type="button" className="toggle-visibility" onClick={() => setShowXorKey(!showXorKey)} disabled>
+          <input type={showXorKey ? 'text' : 'password'} placeholder="例如: 0x12" value={imageXorKey} onChange={(e) => setImageXorKey(e.target.value)} />
+          <button type="button" className="toggle-visibility" onClick={() => setShowXorKey(!showXorKey)}>
             {showXorKey ? <EyeOff size={14} /> : <Eye size={14} />}
           </button>
         </div>
       </div>
 
-      <div className="form-group disabled">
+      <div className="form-group">
         <label>AES 密钥</label>
-        <span className="form-hint">至少16个字符</span>
+        <span className="form-hint">至少16个字符（V4版本图片需要）</span>
         <div className="input-with-toggle">
-          <input type={showAesKey ? 'text' : 'password'} placeholder="例如: b123456789012345..." value={imageAesKey} onChange={(e) => setImageAesKey(e.target.value)} disabled />
-          <button type="button" className="toggle-visibility" onClick={() => setShowAesKey(!showAesKey)} disabled>
+          <input type={showAesKey ? 'text' : 'password'} placeholder="例如: b123456789012345..." value={imageAesKey} onChange={(e) => setImageAesKey(e.target.value)} />
+          <button type="button" className="toggle-visibility" onClick={() => setShowAesKey(!showAesKey)}>
             {showAesKey ? <EyeOff size={14} /> : <Eye size={14} />}
           </button>
         </div>
       </div>
 
-      <button className="btn btn-primary" disabled>
-        <ImageIcon size={16} /> 自动获取图片密钥
+      {imageKeyStatus && <p className="key-status">{imageKeyStatus}</p>}
+
+      <button className="btn btn-primary" onClick={handleGetImageKey} disabled={isGettingImageKey}>
+        <ImageIcon size={16} /> {isGettingImageKey ? '获取中...' : '自动获取图片密钥'}
       </button>
     </div>
   )
@@ -487,10 +771,168 @@ function SettingsPage() {
   const renderCacheTab = () => (
     <div className="tab-content">
       <p className="section-desc">管理应用缓存数据</p>
+      
+      {/* 缓存大小显示 */}
+      <div className="cache-size-info">
+        <div className="cache-header">
+          <h3>缓存占用</h3>
+          <button className="btn btn-secondary btn-sm" onClick={loadCacheSize} disabled={isLoadingCacheSize}>
+            <RefreshCw size={14} className={isLoadingCacheSize ? 'spin' : ''} />
+            刷新
+          </button>
+        </div>
+        {isLoadingCacheSize ? (
+          <p>正在计算...</p>
+        ) : cacheSize ? (
+          <div className="cache-items">
+            <div className="cache-item">
+              <span className="cache-label">图片缓存:</span>
+              <span className="cache-value">{formatFileSize(cacheSize.images)}</span>
+            </div>
+            <div className="cache-item">
+              <span className="cache-label">表情包缓存:</span>
+              <span className="cache-value">{formatFileSize(cacheSize.emojis)}</span>
+            </div>
+            <div className="cache-item">
+              <span className="cache-label">数据库文件:</span>
+              <span className="cache-value">{formatFileSize(cacheSize.databases)}</span>
+            </div>
+            <div className="cache-item">
+              <span className="cache-label">日志文件:</span>
+              <span className="cache-value">{formatFileSize(cacheSize.logs)}</span>
+            </div>
+            <div className="cache-item total">
+              <span className="cache-label">总计:</span>
+              <span className="cache-value">{formatFileSize(cacheSize.total)}</span>
+            </div>
+          </div>
+        ) : (
+          <p>无法获取缓存信息</p>
+        )}
+      </div>
+
       <div className="btn-row">
-        <button className="btn btn-secondary"><Trash2 size={16} /> 清除分析缓存</button>
-        <button className="btn btn-secondary"><Trash2 size={16} /> 清除图片缓存</button>
-        <button className="btn btn-danger"><Trash2 size={16} /> 清除所有缓存</button>
+        <button className="btn btn-secondary" onClick={handleClearImages}>
+          <Trash2 size={16} /> 清除图片
+        </button>
+        <button className="btn btn-secondary" onClick={handleClearConfig}>
+          <Trash2 size={16} /> 清除配置
+        </button>
+        <button className="btn btn-danger" onClick={handleClearAllCache}>
+          <Trash2 size={16} /> 清除缓存
+        </button>
+      </div>
+    </div>
+  )
+
+  const renderLogsTab = () => (
+    <div className="tab-content">
+      <p className="section-desc">查看和管理应用日志</p>
+      
+      {/* 日志级别设置 */}
+      <div className="log-level-setting">
+        <div className="form-group">
+          <label>日志级别</label>
+          <span className="form-hint">选择要记录的最低日志级别</span>
+          <div className="log-level-options">
+            {['DEBUG', 'INFO', 'WARN', 'ERROR'].map((level) => (
+              <button
+                key={level}
+                className={`log-level-btn ${currentLogLevel === level ? 'active' : ''}`}
+                onClick={() => handleLogLevelChange(level)}
+              >
+                {level}
+              </button>
+            ))}
+          </div>
+          <div className="log-level-desc">
+            <small>
+              {currentLogLevel === 'DEBUG' && '记录所有日志（调试、信息、警告、错误）'}
+              {currentLogLevel === 'INFO' && '记录信息、警告和错误日志'}
+              {currentLogLevel === 'WARN' && '仅记录警告和错误日志（推荐）'}
+              {currentLogLevel === 'ERROR' && '仅记录错误日志'}
+            </small>
+          </div>
+        </div>
+      </div>
+      
+      {/* 日志统计 */}
+      <div className="log-stats">
+        <div className="log-header">
+          <h3>日志统计</h3>
+          <button className="btn btn-secondary btn-sm" onClick={loadLogFiles} disabled={isLoadingLogs}>
+            <RefreshCw size={14} className={isLoadingLogs ? 'spin' : ''} />
+            刷新
+          </button>
+        </div>
+        <div className="log-info">
+          <div className="log-item">
+            <span className="log-label">日志文件数:</span>
+            <span className="log-value">{logFiles.length} 个</span>
+          </div>
+          <div className="log-item">
+            <span className="log-label">总大小:</span>
+            <span className="log-value">{formatFileSize(logSize)}</span>
+          </div>
+          <div className="log-item">
+            <span className="log-label">当前级别:</span>
+            <span className="log-value">{currentLogLevel}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* 日志文件列表 */}
+      <div className="log-files">
+        <h4>日志文件</h4>
+        {isLoadingLogs ? (
+          <p>正在加载...</p>
+        ) : logFiles.length > 0 ? (
+          <div className="log-file-list">
+            {logFiles.map((file) => (
+              <div 
+                key={file.name} 
+                className={`log-file-item ${selectedLogFile === file.name ? 'selected' : ''}`}
+                onClick={() => handleLogFileSelect(file.name)}
+              >
+                <div className="log-file-info">
+                  <span className="log-file-name">{file.name}</span>
+                  <span className="log-file-size">{formatFileSize(file.size)}</span>
+                </div>
+                <div className="log-file-date">
+                  {new Date(file.mtime).toLocaleString('zh-CN')}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p>暂无日志文件</p>
+        )}
+      </div>
+
+      {/* 日志内容 */}
+      {selectedLogFile && (
+        <div className="log-content">
+          <div className="log-content-header">
+            <h4>日志内容 - {selectedLogFile}</h4>
+          </div>
+          {isLoadingLogContent ? (
+            <p>正在加载...</p>
+          ) : (
+            <div className="log-content-text">
+              <pre>{logContent}</pre>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 操作按钮 */}
+      <div className="btn-row">
+        <button className="btn btn-secondary" onClick={handleOpenLogDirectory}>
+          <FolderOpen size={16} /> 打开日志目录
+        </button>
+        <button className="btn btn-danger" onClick={handleClearLogs}>
+          <Trash2 size={16} /> 清除所有日志
+        </button>
       </div>
     </div>
   )
@@ -609,7 +1051,6 @@ function SettingsPage() {
           微信聊天记录分析工具，基于 <a href="#" onClick={(e) => { e.preventDefault(); window.electronAPI.shell.openExternal('https://github.com/ycccccccy/echotrace') }}>EchoTrace</a> 重构开发，已获得原作者 <a href="#" onClick={(e) => { e.preventDefault(); window.electronAPI.shell.openExternal('https://github.com/ycccccccy') }}>ycccccccy</a> 授权。
         </p>
         <p className="about-warning">原项目完全免费，凡是通过非 GitHub 下载echotrace且收费的均为骗子，请勿上当！</p>
-        <p className="about-warning">本项目为激活制！</p>
         <div className="about-links">
           <a href="#" onClick={(e) => { e.preventDefault(); window.electronAPI.shell.openExternal('https://miyu.aiqji.com') }}>官网</a>
           <span>·</span>
@@ -625,6 +1066,30 @@ function SettingsPage() {
   return (
     <div className="settings-page">
       {message && <div className={`message-toast ${message.success ? 'success' : 'error'}`}>{message.text}</div>}
+
+      {/* 清除确认对话框 */}
+      {showClearDialog && (
+        <div className="clear-dialog-overlay">
+          <div className="clear-dialog">
+            <h3>{showClearDialog.title}</h3>
+            <p>{showClearDialog.message}</p>
+            <div className="dialog-actions">
+              <button 
+                className="btn btn-danger" 
+                onClick={confirmClear}
+              >
+                确定
+              </button>
+              <button 
+                className="btn btn-secondary dialog-cancel" 
+                onClick={() => setShowClearDialog(null)}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="settings-header">
         <h1>设置</h1>
@@ -653,6 +1118,7 @@ function SettingsPage() {
         {activeTab === 'image' && renderImageTab()}
         {activeTab === 'export' && renderExportTab()}
         {activeTab === 'cache' && renderCacheTab()}
+        {activeTab === 'logs' && renderLogsTab()}
         {activeTab === 'activation' && renderActivationTab()}
         {activeTab === 'about' && renderAboutTab()}
       </div>

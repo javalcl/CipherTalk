@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
-import { Database, Check, Circle, Unlock, RefreshCw, Image, RefreshCcw } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { useLocation } from 'react-router-dom'
+import { Database, Check, Circle, Unlock, RefreshCw, RefreshCcw } from 'lucide-react'
 import './DataManagementPage.scss'
 
 interface DatabaseFile {
@@ -13,12 +14,28 @@ interface DatabaseFile {
 }
 
 function DataManagementPage() {
-  const [activeTab, setActiveTab] = useState<'database' | 'image'>('database')
   const [databases, setDatabases] = useState<DatabaseFile[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isDecrypting, setIsDecrypting] = useState(false)
   const [message, setMessage] = useState<{ text: string; success: boolean } | null>(null)
   const [progress, setProgress] = useState<any>(null)
+  const location = useLocation()
+
+  const loadDatabases = useCallback(async () => {
+    setIsLoading(true)
+    try {
+      const result = await window.electronAPI.dataManagement.scanDatabases()
+      if (result.success) {
+        setDatabases(result.databases || [])
+      } else {
+        showMessage(result.error || '扫描数据库失败', false)
+      }
+    } catch (e) {
+      showMessage(`扫描失败: ${e}`, false)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
     loadDatabases()
@@ -38,7 +55,27 @@ function DataManagementPage() {
     })
 
     return () => removeListener()
-  }, [])
+  }, [loadDatabases])
+
+  // 当路由变化到数据管理页面时，重新加载数据
+  useEffect(() => {
+    if (location.pathname === '/data-management') {
+      loadDatabases()
+    }
+  }, [location.pathname, loadDatabases])
+
+  // 窗口可见性变化时刷新数据
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (!document.hidden && location.pathname === '/data-management') {
+        // 窗口从隐藏变为可见时，重新加载数据库列表
+        await loadDatabases()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [location.pathname, loadDatabases])
 
 
   const showMessage = (text: string, success: boolean) => {
@@ -50,22 +87,6 @@ function DataManagementPage() {
     if (bytes < 1024) return `${bytes} B`
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-  }
-
-  const loadDatabases = async () => {
-    setIsLoading(true)
-    try {
-      const result = await window.electronAPI.dataManagement.scanDatabases()
-      if (result.success) {
-        setDatabases(result.databases || [])
-      } else {
-        showMessage(result.error || '扫描数据库失败', false)
-      }
-    } catch (e) {
-      showMessage(`扫描失败: ${e}`, false)
-    } finally {
-      setIsLoading(false)
-    }
   }
 
   const handleDecryptAll = async () => {
@@ -163,108 +184,72 @@ function DataManagementPage() {
 
       <div className="page-header">
         <h1>数据管理</h1>
-        <div className="header-tabs">
-          <button 
-            className={`tab-btn ${activeTab === 'database' ? 'active' : ''}`}
-            onClick={() => setActiveTab('database')}
-          >
-            <Database size={16} />
-            数据库
-          </button>
-          <button 
-            className={`tab-btn ${activeTab === 'image' ? 'active' : ''}`}
-            onClick={() => setActiveTab('image')}
-          >
-            <Image size={16} />
-            图片
-          </button>
-        </div>
       </div>
 
       <div className="page-scroll">
-        {activeTab === 'database' && (
-          <section className="page-section">
-            <div className="section-header">
-              <div>
-                <h2>数据库解密</h2>
-                <p className="section-desc">
-                  {isLoading ? '正在扫描...' : `已找到 ${databases.length} 个数据库，${decryptedCount} 个已解密，${pendingCount} 个待解密`}
-                </p>
-              </div>
-              <div className="section-actions">
-                <button className="btn btn-secondary" onClick={loadDatabases} disabled={isLoading}>
-                  <RefreshCw size={16} className={isLoading ? 'spin' : ''} />
-                  刷新
-                </button>
-                {needsUpdateCount > 0 && (
-                  <button 
-                    className="btn btn-warning"
-                    onClick={handleIncrementalUpdate}
-                    disabled={isDecrypting}
-                  >
-                    <RefreshCcw size={16} />
-                    增量更新 ({needsUpdateCount})
-                  </button>
-                )}
+        <section className="page-section">
+          <div className="section-header">
+            <div>
+              <h2>数据库解密</h2>
+              <p className="section-desc">
+                {isLoading ? '正在扫描...' : `已找到 ${databases.length} 个数据库，${decryptedCount} 个已解密，${pendingCount} 个待解密`}
+              </p>
+            </div>
+            <div className="section-actions">
+              <button className="btn btn-secondary" onClick={loadDatabases} disabled={isLoading}>
+                <RefreshCw size={16} className={isLoading ? 'spin' : ''} />
+                刷新
+              </button>
+              {needsUpdateCount > 0 && (
                 <button 
-                  className="btn btn-primary"
-                  onClick={handleDecryptAll}
-                  disabled={isDecrypting || pendingCount === 0}
+                  className="btn btn-warning"
+                  onClick={handleIncrementalUpdate}
+                  disabled={isDecrypting}
                 >
-                  <Unlock size={16} />
-                  {isDecrypting ? '解密中...' : '批量解密'}
+                  <RefreshCcw size={16} />
+                  增量更新 ({needsUpdateCount})
                 </button>
-              </div>
-            </div>
-
-            <div className="database-list">
-              {databases.map((db, index) => (
-                <div key={index} className={`database-item ${db.isDecrypted ? (db.needsUpdate ? 'needs-update' : 'decrypted') : 'pending'}`}>
-                  <div className={`status-icon ${db.isDecrypted ? (db.needsUpdate ? 'needs-update' : 'decrypted') : 'pending'}`}>
-                    {db.isDecrypted ? <Check size={16} /> : <Circle size={16} />}
-                  </div>
-                  <div className="db-info">
-                    <div className="db-name">{db.fileName}</div>
-                    <div className="db-meta">
-                      <span>{db.wxid}</span>
-                      <span>•</span>
-                      <span>{formatFileSize(db.fileSize)}</span>
-                    </div>
-                  </div>
-                  <div className={`db-status ${db.isDecrypted ? (db.needsUpdate ? 'needs-update' : 'decrypted') : 'pending'}`}>
-                    {db.isDecrypted ? (db.needsUpdate ? '需更新' : '已解密') : '待解密'}
-                  </div>
-                </div>
-              ))}
-
-              {!isLoading && databases.length === 0 && (
-                <div className="empty-state">
-                  <Database size={48} strokeWidth={1} />
-                  <p>未找到数据库文件</p>
-                  <p className="hint">请先在设置页面配置数据库路径</p>
-                </div>
               )}
+              <button 
+                className="btn btn-primary"
+                onClick={handleDecryptAll}
+                disabled={isDecrypting || pendingCount === 0}
+              >
+                <Unlock size={16} />
+                {isDecrypting ? '解密中...' : '批量解密'}
+              </button>
             </div>
-          </section>
-        )}
+          </div>
 
-
-        {activeTab === 'image' && (
-          <section className="page-section">
-            <div className="section-header">
-              <div>
-                <h2>图片解密</h2>
-                <p className="section-desc">此功能由于微信加密方式原因，暂不可用</p>
+          <div className="database-list">
+            {databases.map((db, index) => (
+              <div key={index} className={`database-item ${db.isDecrypted ? (db.needsUpdate ? 'needs-update' : 'decrypted') : 'pending'}`}>
+                <div className={`status-icon ${db.isDecrypted ? (db.needsUpdate ? 'needs-update' : 'decrypted') : 'pending'}`}>
+                  {db.isDecrypted ? <Check size={16} /> : <Circle size={16} />}
+                </div>
+                <div className="db-info">
+                  <div className="db-name">{db.fileName}</div>
+                  <div className="db-meta">
+                    <span>{db.wxid}</span>
+                    <span>•</span>
+                    <span>{formatFileSize(db.fileSize)}</span>
+                  </div>
+                </div>
+                <div className={`db-status ${db.isDecrypted ? (db.needsUpdate ? 'needs-update' : 'decrypted') : 'pending'}`}>
+                  {db.isDecrypted ? (db.needsUpdate ? '需更新' : '已解密') : '待解密'}
+                </div>
               </div>
-            </div>
+            ))}
 
-            <div className="unavailable-state">
-              <Image size={64} strokeWidth={1} />
-              <p>图片解密功能暂不可用</p>
-              <p className="hint">由于微信更新了图片加密方式，该功能正在适配中</p>
-            </div>
-          </section>
-        )}
+            {!isLoading && databases.length === 0 && (
+              <div className="empty-state">
+                <Database size={48} strokeWidth={1} />
+                <p>未找到数据库文件</p>
+                <p className="hint">请先在设置页面配置数据库路径</p>
+              </div>
+            )}
+          </div>
+        </section>
       </div>
     </>
   )

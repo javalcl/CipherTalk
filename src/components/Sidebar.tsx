@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import { Home, MessageSquare, BarChart3, Users, FileText, Database, Settings, ChevronLeft, ChevronRight, Download } from 'lucide-react'
+import { Home, MessageSquare, BarChart3, Users, FileText, Database, Settings, SquareChevronLeft, SquareChevronRight, Download } from 'lucide-react'
 import './Sidebar.scss'
 
 function Sidebar() {
@@ -118,7 +118,8 @@ function Sidebar() {
           onClick={() => setCollapsed(!collapsed)}
           title={collapsed ? '展开菜单' : '收起菜单'}
         >
-          {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+          {collapsed ? <SquareChevronRight size={18} /> : <SquareChevronLeft size={18} />}
+          <span className="collapse-label">{collapsed ? '展开' : '收回'}</span>
         </button>
       </div>
     </aside>

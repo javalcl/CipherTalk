@@ -7,7 +7,7 @@ import { resolve } from 'path'
 export default defineConfig({
   base: './',
   server: {
-    port: 3000,
+    port: 5173,
     strictPort: false  // 如果3000被占用，自动尝试下一个
   },
   plugins: [
@@ -41,6 +41,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src')
+    }
+  },
+  build: {
+    rollupOptions: {
+      external: [/^WeFlow\/.*/]
     }
   }
 })

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MessageSquare, FileText, BarChart3, Sparkles, Download, CheckCircle, XCircle, User } from 'lucide-react'
+import { FileText, CheckCircle, XCircle, User } from 'lucide-react'
 import { useAppStore } from '../stores/appStore'
 import './HomePage.scss'
 
@@ -63,22 +63,8 @@ function HomePage() {
     }
   }
 
-  const openChatWindow = async () => {
-    try {
-      await window.electronAPI.window.openChatWindow()
-    } catch (e) {
-      console.error('打开聊天窗口失败:', e)
-    }
-  }
-
   return (
     <div className="home-page">
-      <div className="home-header">
-        <img src="./logo.png" alt="密语" className="app-logo" />
-        <h1 className="app-name">密语</h1>
-        <p className="app-desc">微信聊天记录查看工具</p>
-      </div>
-
       {/* 用户状态卡片 */}
       <div className="user-status-card">
         {userInfo.connected ? (
@@ -115,41 +101,12 @@ function HomePage() {
         )}
       </div>
 
-      {/* 快捷功能入口 */}
-      <div className="shortcuts">
-        <div className="shortcut-card" onClick={openChatWindow}>
-          <div className="shortcut-icon" style={{ backgroundColor: '#07c160' }}>
-            <MessageSquare size={24} />
-          </div>
-          <span className="shortcut-label">聊天记录</span>
-        </div>
-        <div className="shortcut-card" onClick={() => navigate('/analytics')}>
-          <div className="shortcut-icon" style={{ backgroundColor: '#1989fa' }}>
-            <BarChart3 size={24} />
-          </div>
-          <span className="shortcut-label">私聊分析</span>
-        </div>
-        <div className="shortcut-card" onClick={() => navigate('/annual-report')}>
-          <div className="shortcut-icon" style={{ backgroundColor: '#ee0a24' }}>
-            <Sparkles size={24} />
-          </div>
-          <span className="shortcut-label">年度报告</span>
-        </div>
-        <div className="shortcut-card" onClick={() => navigate('/export')}>
-          <div className="shortcut-icon" style={{ backgroundColor: '#7232dd' }}>
-            <Download size={24} />
-          </div>
-          <span className="shortcut-label">导出</span>
-        </div>
-      </div>
-
       <div className="tips">
         <h3><FileText size={16} /> 使用提示</h3>
         <ul>
-          <li>首次使用请先在「设置」中获取解密密钥</li>
-          <li>自动获取时会提示退出重新登陆</li>
-          <li>测试链接成功后，到「数据管理」界面解密数据库</li>
-          <li>数据仅在本地处理，不会上传到任何服务器</li>
+          <li>联网功能仅用来支持在线更新！</li>
+          <li>记得到「数据管理」界面解密数据库哦！</li>
+          <li>数据仅在本地处理，不会上传到任何服务器！</li>
         </ul>
       </div>
     </div>

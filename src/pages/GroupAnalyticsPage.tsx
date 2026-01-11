@@ -58,6 +58,19 @@ function GroupAnalyticsPage() {
     loadGroups()
   }, [])
 
+  // 窗口可见性变化时刷新数据
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (!document.hidden) {
+        // 窗口从隐藏变为可见时，重新加载群组列表
+        await loadGroups()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [])
+
   useEffect(() => {
     if (searchQuery) {
       setFilteredGroups(groups.filter(g => g.displayName.toLowerCase().includes(searchQuery.toLowerCase())))

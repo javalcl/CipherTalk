@@ -76,6 +76,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     waitForWindow: (maxWaitSeconds?: number) => ipcRenderer.invoke('wxkey:waitForWindow', maxWaitSeconds),
     startGetKey: () => ipcRenderer.invoke('wxkey:startGetKey'),
     cancel: () => ipcRenderer.invoke('wxkey:cancel'),
+    detectCurrentAccount: (dbPath?: string, maxTimeDiffMinutes?: number) => ipcRenderer.invoke('wxkey:detectCurrentAccount', dbPath, maxTimeDiffMinutes),
     onStatus: (callback: (data: { status: string; level: number }) => void) => {
       ipcRenderer.on('wxkey:status', (_, data) => callback(data))
       return () => ipcRenderer.removeAllListeners('wxkey:status')
@@ -91,8 +92,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // WCDB 数据库
   wcdb: {
-    testConnection: (dbPath: string, hexKey: string, wxid: string) => 
-      ipcRenderer.invoke('wcdb:testConnection', dbPath, hexKey, wxid),
+    testConnection: (dbPath: string, hexKey: string, wxid: string, isAutoConnect?: boolean) => 
+      ipcRenderer.invoke('wcdb:testConnection', dbPath, hexKey, wxid, isAutoConnect),
     open: (dbPath: string, hexKey: string, wxid: string) => 
       ipcRenderer.invoke('wcdb:open', dbPath, hexKey, wxid),
     close: () => ipcRenderer.invoke('wcdb:close')
@@ -121,6 +122,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
     batchDetectXorKey: (dirPath: string) => ipcRenderer.invoke('imageDecrypt:batchDetectXorKey', dirPath),
     decryptImage: (inputPath: string, outputPath: string, xorKey: number, aesKey?: string) => 
       ipcRenderer.invoke('imageDecrypt:decryptImage', inputPath, outputPath, xorKey, aesKey)
+  },
+
+  // 图片解密（新 API）
+  image: {
+    decrypt: (payload: { sessionId?: string; imageMd5?: string; imageDatName?: string; force?: boolean }) => 
+      ipcRenderer.invoke('image:decrypt', payload),
+    resolveCache: (payload: { sessionId?: string; imageMd5?: string; imageDatName?: string }) => 
+      ipcRenderer.invoke('image:resolveCache', payload),
+    onUpdateAvailable: (callback: (data: { cacheKey: string; imageMd5?: string; imageDatName?: string }) => void) => {
+      ipcRenderer.on('image:updateAvailable', (_, data) => callback(data))
+      return () => ipcRenderer.removeAllListeners('image:updateAvailable')
+    },
+    onCacheResolved: (callback: (data: { cacheKey: string; imageMd5?: string; imageDatName?: string; localPath: string }) => void) => {
+      ipcRenderer.on('image:cacheResolved', (_, data) => callback(data))
+      return () => ipcRenderer.removeAllListeners('image:cacheResolved')
+    }
+  },
+
+  // 视频
+  video: {
+    getVideoInfo: (videoMd5: string) => ipcRenderer.invoke('video:getVideoInfo', videoMd5),
+    readFile: (videoPath: string) => ipcRenderer.invoke('video:readFile', videoPath),
+    parseVideoMd5: (content: string) => ipcRenderer.invoke('video:parseVideoMd5', content)
   },
 
   // 图片密钥获取
@@ -186,5 +210,38 @@ contextBridge.exposeInMainWorld('electronAPI', {
     checkStatus: () => ipcRenderer.invoke('activation:checkStatus'),
     getTypeDisplayName: (type: string | null) => ipcRenderer.invoke('activation:getTypeDisplayName', type),
     clearCache: () => ipcRenderer.invoke('activation:clearCache')
+  },
+  cache: {
+    clearImages: () => ipcRenderer.invoke('cache:clearImages'),
+    clearAll: () => ipcRenderer.invoke('cache:clearAll'),
+    clearConfig: () => ipcRenderer.invoke('cache:clearConfig'),
+    getCacheSize: () => ipcRenderer.invoke('cache:getCacheSize')
+  },
+  log: {
+    getLogFiles: () => ipcRenderer.invoke('log:getLogFiles'),
+    readLogFile: (filename: string) => ipcRenderer.invoke('log:readLogFile', filename),
+    clearLogs: () => ipcRenderer.invoke('log:clearLogs'),
+    getLogSize: () => ipcRenderer.invoke('log:getLogSize'),
+    getLogDirectory: () => ipcRenderer.invoke('log:getLogDirectory'),
+    setLogLevel: (level: string) => ipcRenderer.invoke('log:setLogLevel', level),
+    getLogLevel: () => ipcRenderer.invoke('log:getLogLevel')
   }
 })
+
+// 主题由 index.html 中的内联脚本处理，这里只负责同步 localStorage
+;(async () => {
+  try {
+    const theme = await ipcRenderer.invoke('config:get', 'theme') || 'cloud-dancer'
+    const themeMode = await ipcRenderer.invoke('config:get', 'themeMode') || 'light'
+    
+    // 更新 localStorage 以供下次同步使用（主窗口场景）
+    try {
+      localStorage.setItem('theme', theme)
+      localStorage.setItem('themeMode', themeMode)
+    } catch (e) {
+      // localStorage 可能不可用
+    }
+  } catch (e) {
+    // 忽略错误
+  }
+})()

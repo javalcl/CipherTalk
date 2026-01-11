@@ -33,12 +33,16 @@ export interface Message {
   senderUsername: string | null
   parsedContent: string
   imageMd5?: string
+  imageDatName?: string
   emojiCdnUrl?: string
   emojiMd5?: string
   voiceDurationSeconds?: number
   // 引用消息
   quotedContent?: string
   quotedSender?: string
+  // 视频相关
+  videoMd5?: string
+  rawContent?: string
 }
 
 // 分析数据
