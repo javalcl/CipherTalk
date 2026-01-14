@@ -1,6 +1,6 @@
 {
   "name": "ciphertalk",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "密语 - 微信聊天记录查看工具",
   "main": "dist-electron/main.js",
   "scripts": {

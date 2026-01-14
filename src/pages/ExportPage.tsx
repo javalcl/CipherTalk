@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Search, Download, FolderOpen, RefreshCw, Check, Calendar, FileJson, FileText, Table, Loader2, X, ChevronDown, FileSpreadsheet, Database, FileCode, CheckCircle, XCircle, ExternalLink } from 'lucide-react'
+import { Search, Download, FolderOpen, RefreshCw, Check, FileJson, FileText, Table, Loader2, X, FileSpreadsheet, Database, FileCode, CheckCircle, XCircle, ExternalLink } from 'lucide-react'
+import DateRangePicker from '../components/DateRangePicker'
 import * as configService from '../services/config'
 import './ExportPage.scss'
 
@@ -13,8 +14,9 @@ interface ChatSession {
 
 interface ExportOptions {
   format: 'chatlab' | 'chatlab-jsonl' | 'json' | 'html' | 'txt' | 'excel' | 'sql'
-  dateRange: { start: Date; end: Date } | null
-  useAllTime: boolean
+  startDate: string
+  endDate: string
+  exportAvatars: boolean
 }
 
 interface ExportResult {
@@ -37,11 +39,9 @@ function ExportPage() {
   
   const [options, setOptions] = useState<ExportOptions>({
     format: 'chatlab',
-    dateRange: {
-      start: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-      end: new Date()
-    },
-    useAllTime: true
+    startDate: '',
+    endDate: '',
+    exportAvatars: true
   })
 
   const loadSessions = useCallback(async () => {
@@ -119,10 +119,6 @@ function ExportPage() {
     return [...name][0] || '?'
   }
 
-  const formatDate = (date: Date) => {
-    return date.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
-  }
-
   const openExportFolder = async () => {
     if (exportFolder) {
       await window.electronAPI.shell.openPath(exportFolder)
@@ -140,10 +136,11 @@ function ExportPage() {
       const sessionList = Array.from(selectedSessions)
       const exportOptions = {
         format: options.format,
-        dateRange: options.useAllTime ? null : options.dateRange ? {
-          start: Math.floor(options.dateRange.start.getTime() / 1000),
-          end: Math.floor(options.dateRange.end.getTime() / 1000)
-        } : null
+        dateRange: (options.startDate && options.endDate) ? {
+          start: Math.floor(new Date(options.startDate).getTime() / 1000),
+          end: Math.floor(new Date(options.endDate + 'T23:59:59').getTime() / 1000)
+        } : null,
+        exportAvatars: options.exportAvatars
       }
 
       if (options.format === 'chatlab' || options.format === 'chatlab-jsonl' || options.format === 'json') {
@@ -269,23 +266,27 @@ function ExportPage() {
           <div className="setting-section">
             <h3>时间范围</h3>
             <div className="time-options">
+              <DateRangePicker
+                startDate={options.startDate}
+                endDate={options.endDate}
+                onStartDateChange={(date) => setOptions(prev => ({ ...prev, startDate: date }))}
+                onEndDateChange={(date) => setOptions(prev => ({ ...prev, endDate: date }))}
+              />
+              <p className="time-hint">不选择时间范围则导出全部消息</p>
+            </div>
+          </div>
+
+          <div className="setting-section">
+            <h3>导出选项</h3>
+            <div className="export-options">
               <label className="checkbox-item">
                 <input
                   type="checkbox"
-                  checked={options.useAllTime}
-                  onChange={e => setOptions({ ...options, useAllTime: e.target.checked })}
+                  checked={options.exportAvatars}
+                  onChange={e => setOptions(prev => ({ ...prev, exportAvatars: e.target.checked }))}
                 />
-                <span>导出全部时间</span>
+                <span>导出头像</span>
               </label>
-              {!options.useAllTime && options.dateRange && (
-                <div className="date-range">
-                  <Calendar size={16} />
-                  <span>{formatDate(options.dateRange.start)} - {formatDate(options.dateRange.end)}</span>
-                  <button className="change-btn">
-                    <ChevronDown size={14} />
-                  </button>
-                </div>
-              )}
             </div>
           </div>
 

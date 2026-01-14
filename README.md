@@ -1,7 +1,7 @@
 # 密语 CipherTalk
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.0.6-green.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-1.0.7-green.svg)](package.json)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)]()
 [![Telegram](https://img.shields.io/badge/Telegram-Join%20Group%20Chat-blue.svg?logo=telegram)](https://t.me/+hn3QzNc4DbA0MzNl)
 
